@@ -2,6 +2,7 @@ import torch
 
 "Returns dice score given probability predictions, ground-truth and a threshold"
 def dice_score(predictions, ground_truth, threshold=0.5):
+    
     # binarize predictions using custom threshold
     bin_predictions = (predictions > threshold).float()
     
