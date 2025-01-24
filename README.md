@@ -1,2 +1,2 @@
-# taarib_td
-Integration of Vision GNN, U-Net and PD
+# UNet+ViG+PI
+Integration of U-Net, Vision GNN and Persistence Images from TDA
