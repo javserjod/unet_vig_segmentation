@@ -1,5 +1,5 @@
-# model design: https://lmb.informatik.uni-freiburg.de/people/ronneber/u-net/
-# code implementation from: https://amaarora.github.io/posts/2020-09-13-unet.html
+# original model design: https://lmb.informatik.uni-freiburg.de/people/ronneber/u-net/
+# code implementation based on: https://amaarora.github.io/posts/2020-09-13-unet.html
 
 import torch
 import torch.nn as nn
@@ -48,7 +48,7 @@ class EncoderBlock(nn.Module):
         return x
 
     
-    
+""" Decoder Blocks after Encoder Blocks, which are (upsampling, concat, Block)"""    
 class DecoderBlock(nn.Module):
     def __init__(self, in_ch, out_ch, bilinear=True):
         super().__init__()
@@ -71,14 +71,16 @@ class DecoderBlock(nn.Module):
         return self.conv(x)   
 
 
-
+""" Output Block, the last block in the network (1x1 Conv just for reducing number of maps, Sigmoid)"""
 class OutputBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, kernel_size=1)
+        self.act = nn.Sigmoid()
 
     def forward(self, x):
-        x = torch.sigmoid(self.conv(x))
+        x = self.conv(x)
+        x = self.act(x)
         return x
     
   

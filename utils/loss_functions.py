@@ -14,10 +14,14 @@ class DiceLoss(nn.Module):
         #comment out if your model contains a sigmoid or equivalent activation layer
         #inputs = F.sigmoid(inputs)       
         
+        print(f"Inputs: {inputs}")
+        print(f"Inputs: {targets}")
         #flatten label and prediction tensors
         inputs = inputs.view(-1)
         targets = targets.view(-1)
-        
+        print("\n")
+        print(inputs)
+        print(targets)
         intersection = (inputs * targets).sum()                            
         dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
         
