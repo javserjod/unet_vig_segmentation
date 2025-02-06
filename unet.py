@@ -3,7 +3,6 @@
 
 import torch
 import torch.nn as nn
-import torchvision
 import torch.nn.functional as F
 
 
@@ -24,7 +23,6 @@ class Block(nn.Module):
         return self.conv(x)
         
 
-
 """ Input Block, just the first Block"""
 class InputBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
@@ -34,7 +32,6 @@ class InputBlock(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
-
 
 
 """ Encoder Blocks after Input Block, which are (max pool, Block)"""
@@ -55,7 +52,7 @@ class DecoderBlock(nn.Module):
         if bilinear:         # bilinear interpolation
             self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         else:
-            self.up = nn.ConvTranspose2d(in_ch // 2, in_ch // 2, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
         self.conv = Block(in_ch, out_ch)
 
     def forward(self, x1, x2):
@@ -93,10 +90,10 @@ class UNet(nn.Module):
         self.down1 = EncoderBlock(64, 128)
         self.down2 = EncoderBlock(128, 256)
         self.down3 = EncoderBlock(256, 512)
-        self.down4 = EncoderBlock(512, 512)
-        self.up1 = DecoderBlock(1024, 256, False)
-        self.up2 = DecoderBlock(512, 128, False)
-        self.up3 = DecoderBlock(256, 64, False)
+        self.down4 = EncoderBlock(512, 1024)
+        self.up1 = DecoderBlock(1024, 512, False)
+        self.up2 = DecoderBlock(512, 256, False)
+        self.up3 = DecoderBlock(256, 128, False)
         self.up4 = DecoderBlock(128, 64, False)
         self.out = OutputBlock(64, n_classes)
 

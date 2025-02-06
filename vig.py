@@ -12,14 +12,18 @@ class TwoLayerNN(nn.Module):
         hidden_features = hidden_features or in_features
 
         self.layer = nn.Sequential(
-            nn.Linear(in_features, hidden_features),
+            nn.Linear(in_features, hidden_features), 
             nn.BatchNorm1d(hidden_features),
             nn.GELU(),
-            nn.Linear(hidden_features, out_features),
+            nn.Linear(hidden_features, out_features), 
         )
 
     def forward(self, x):
-        return self.layer(x) + x
+        BN, C = x.shape
+        #print(f"Before layers: {x.shape}")  # Debug print
+        x = self.layer(x) + x
+        #print(f"After layers: {x.shape}")  # Debug print
+        return x
 
 
 
@@ -31,35 +35,38 @@ class SimplePatchifier(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+
         x = x.permute(0, 2, 3, 1).unfold(1, self.patch_size, self.patch_size)\
             .unfold(2, self.patch_size, self.patch_size).contiguous()\
             .view(B, -1, C, self.patch_size, self.patch_size)
-        # now we have tensor [B batch size, N patches, C channels, H, W]
-        return x
+                
+        return x   # [B batch size, N patches, C channels, h of patches, w of patches]
 
 
 ''' ViG Block: graph creation, Grapher module, FFN'''
 class ViGBlock(nn.Module):
     def __init__(self, in_features, num_edges=9, head_num=1):
         super().__init__()
+        self.in_features=in_features
         self.k = num_edges
-        self.num_edges = num_edges
-        self.in_layer1 = TwoLayerNN(in_features)
-        self.out_layer1 = TwoLayerNN(in_features)
+        self.head_num=head_num
+        
+        self.in_layer1 = TwoLayerNN(self.in_features)
+        self.out_layer1 = TwoLayerNN(self.in_features)
         self.droppath1 = nn.Identity()  # DropPath(0)
-        self.in_layer2 = TwoLayerNN(in_features, in_features*4)
-        self.out_layer2 = TwoLayerNN(in_features, in_features*4)
+        self.in_layer2 = TwoLayerNN(self.in_features, self.in_features*4)
+        self.out_layer2 = TwoLayerNN(self.in_features, self.in_features*4)
         self.droppath2 = nn.Identity()  # DropPath(0)
         self.multi_head_fc = nn.Conv1d(
-            in_features*2, in_features, 1, 1, groups=head_num)
+            self.in_features*2, self.in_features, 1, 1, groups=self.head_num)
 
     def forward(self, x):
         B, N, C = x.shape         # [B, N, C]
-
+        
+        # Create the graph
         sim = x @ x.transpose(-1, -2)               # sim is [B, N, N] where [b,i,j] is similitude between node i and node j in batch b
         graph = sim.topk(self.k, dim=-1).indices    # choose most similar nodes = neighbours   [B, N, k]  where k are the most similar nodes to node i in batch b
                                                     # it is like connecting the nodes with edges -> creating graph
-        
         shortcut = x         # copy of x for residual connection
         
         # FEAT. TRANSF. AND ACTIVATION FUNC. TO AVOID OVER-SMOOTHING 
@@ -83,8 +90,8 @@ class ViGBlock(nn.Module):
         x = x + shortcut       # residual connection concatenation
 
         # FFN module. Z in paper (ecuation 7) -------------------------------------------------------------------
-        x = self.droppath2(self.out_layer2(
-            F.gelu(self.in_layer2(x.view(B * N, -1)))).view(B, N, -1)) + x
+        x = self.droppath2(self.out_layer2(F.gelu(self.in_layer2(
+            x.view(B * N, -1)))).view(B, N, -1)) + x
         
         return x    # tensor [batch_size, num_patches, out_feature]
     
@@ -93,137 +100,172 @@ class VGNN(nn.Module):
     # num_patches: number of nodes (patches)
     # num_ViGBlocks: depth of the network
     # num_edges: number of neighbours
-    def __init__(self, in_features=3*16*16, out_feature=192, num_patches=196,
-                 num_ViGBlocks=12, num_edges=9, head_num=1, patch_size=36):
+    def __init__(self, in_features, out_feature, 
+                 num_patches, num_ViGBlocks, 
+                 num_edges, head_num, 
+                 patch_size):
+        
         super().__init__()
+        self.in_features=in_features
+        self.out_feature = out_feature
+        self.num_patches=num_patches
+        self.num_ViGBlocks=num_ViGBlocks
+        self.num_edges=num_edges
+        self.head_num=head_num
+        self.patch_size=patch_size
 
-        self.patchifier = SimplePatchifier(patch_size)    
+        self.patchifier = SimplePatchifier(self.patch_size)     # get [B batch size, N patches, C channels, H, W]
 
         # self.patch_embedding = TwoLayerNN(in_features)
         self.patch_embedding = nn.Sequential(
             # six linear layers to extract features from patches
-            nn.Linear(in_features, out_feature//2),
-            nn.BatchNorm1d(out_feature//2),
+            nn.Linear(self.in_features, self.out_feature//2),
+            nn.BatchNorm1d(self.out_feature//2),
             nn.GELU(),
-            nn.Linear(out_feature//2, out_feature//4),
-            nn.BatchNorm1d(out_feature//4),
+            nn.Linear(self.out_feature//2, self.out_feature//4),
+            nn.BatchNorm1d(self.out_feature//4),
             nn.GELU(),
-            nn.Linear(out_feature//4, out_feature//8),
-            nn.BatchNorm1d(out_feature//8),
+            nn.Linear(self.out_feature//4, self.out_feature//8),
+            nn.BatchNorm1d(self.out_feature//8),
             nn.GELU(),
-            nn.Linear(out_feature//8, out_feature//4),
-            nn.BatchNorm1d(out_feature//4),
+            nn.Linear(self.out_feature//8, self.out_feature//4),
+            nn.BatchNorm1d(self.out_feature//4),
             nn.GELU(),
-            nn.Linear(out_feature//4, out_feature//2),
-            nn.BatchNorm1d(out_feature//2),
+            nn.Linear(self.out_feature//4, self.out_feature//2),
+            nn.BatchNorm1d(self.out_feature//2),
             nn.GELU(),
-            nn.Linear(out_feature//2, out_feature),
-            nn.BatchNorm1d(out_feature)
+            nn.Linear(self.out_feature//2, self.out_feature),
+            nn.BatchNorm1d(self.out_feature)
         )
         self.pose_embedding = nn.Parameter(
-            torch.rand(num_patches, out_feature))
+            torch.rand(self.num_patches, self.out_feature))
 
+        # self.blocks = nn.Sequential(
+        #     *[ViGBlock(self.out_feature, self.num_edges, self.head_num)
+        #       for _ in range(self.num_ViGBlocks)])
+        
+        # increase num of edges linearly when advancing ViG blocks (stop at 18) as original article says
         self.blocks = nn.Sequential(
-            *[ViGBlock(out_feature, num_edges, head_num)
-              for _ in range(num_ViGBlocks)])
+            *[ViGBlock(self.out_feature, min(self.num_edges + i, 18), self.head_num)
+                for i in range(self.num_ViGBlocks)])
 
     def forward(self, x):
-        # GRAPH PROCESSING
-        x = self.patchifier(x)        # get patches -> tensor [B batch size, N patches, C channels, H, W]
-        
+        # Pre-GRAPH PROCESSING
+        x = self.patchifier(x)        # get patches -> # [B batch size, N patches, C channels, h of patches, w of patches]
         B, N, C, H, W = x.shape
-        x = self.patch_embedding(x.view(B * N, -1)).view(B, N, -1)    # get tensor [batch_size, num_patches, out_feature]
         
+        x = x.view(B*N, C * H * W)   # [B*N_patches, 3 channels*patch_height*patch_width]
+        #print(f"Before patch_embedding: {x.shape}")  # Debug print
+        x = self.patch_embedding(x)    # get tensor [batch_size, num_patches, out_feature]
+        #print(f"After patch_embedding: {x.shape}")  # Debug print
+         # Reshape back to [B, N, out_feature]
+        x = x.view(B, N, -1)
         x = x + self.pose_embedding     # positional encoding (sum random [0, 1) to every node x feature)
 
-        # FEATURE TRANSFORM
+        # FEATURE TRANSFORM (ViG blocks)
         x = self.blocks(x)
 
-        return x
+        return x    #[batch_size, num_patches, out_feature]
     
 
-class Classifier(nn.Module):
-    def __init__(self, in_features=3*16*16, out_feature=192,
-                 num_patches=196, num_ViGBlocks=16, hidden_layer=1024,
-                 num_edges=9, head_num=1, n_classes=1, patch_size=36,
-                 output_size=512):
+class ViGClassifier(nn.Module):
+    def __init__(self, in_features, out_feature,
+                 num_patches, num_ViGBlocks,
+                 num_edges, head_num, 
+                 patch_size, output_size):
+        
         super().__init__()
+        
+        self.in_features=in_features
+        self.out_feature = out_feature    # number of features per patch
+        self.num_patches=num_patches
+        self.num_ViGBlocks=num_ViGBlocks
+        self.num_edges=num_edges
+        self.head_num=head_num
+        self.patch_size=patch_size
+        self.output_size=output_size      # size of upsampled
+        
+        self.grid_size= int(np.sqrt(self.num_patches))     # if 196 patches in 512x512 img, then there are 14x14 patches
+        
         # VGNN as BACKBONE
-        self.backbone = VGNN(in_features, out_feature,
-                             num_patches, num_ViGBlocks,
-                             num_edges, head_num, patch_size)
+        self.backbone = VGNN(self.in_features, self.out_feature,
+                             self.num_patches, self.num_ViGBlocks,
+                             self.num_edges, self.head_num, 
+                             self.patch_size)
         
-        self.num_patches = num_patches
-        self.out_feature = out_feature        # numebr of featuers per patch
-        self.output_size = output_size        # size of upsampled
-        self.h = self.w = int(np.sqrt(self.num_patches))       # get h and w of image where each pixel is a feature
 
-        
         # HEAD
-        self.predictor = nn.Sequential(
-            # nn.Linear(num_patches*out_feature, hidden_layer),
-            # nn.BatchNorm1d(hidden_layer),
-            # nn.GELU(),
-            # nn.Linear(hidden_layer, num_patches),
-            # nn.Sigmoid()  # Para obtener probabilidades entre 0 y 1
-        )
+        # # DEFAULT PREDICTOR
+        # self.predictor = nn.Sequential(
+        #     nn.Linear(num_patches*out_feature, hidden_layer),
+        #     nn.BatchNorm1d(hidden_layer),
+        #     nn.GELU(),
+        #     nn.Linear(hidden_layer, num_patches),
+        #     nn.Sigmoid()  # probabilities between 0 and 1
+        # )
         
-        from unet import UNet
-        self.mlp = nn.Linear(self.out_feature, self.out_feature)           # refine characteristics
-        #self.patch_to_image = nn.Unfold(kernel_size=(1, 1))  # Simplificación
-        self.conv_blocks = nn.Sequential(
-            nn.Conv2d(self.out_feature, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 1, kernel_size=1),  # Output 1 channel for mask
-            #UNet(self.out_feature+3, n_classes)
-        )
         
-        self.unet = UNet(1+3, n_classes)
-                
         
-
+        # Process Vision GNN C features maps
+        self.conv1 = nn.Conv2d(self.out_feature, self.out_feature//2, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(self.out_feature//2, self.out_feature//4, kernel_size=3, padding=1)
+        
+        # Output layer, generate just 1 channel
+        self.conv_out = nn.Conv2d(self.out_feature//4, 1, kernel_size=3, padding=1)
+        self.act = nn.Sigmoid()   # only if vig alone
+        
+        
     def forward(self, x):
-        
-        orig_x = x.clone()    # copy of original input
-        
-        x = self.backbone(x)
-        B, N, C = x.shape             # [batch size, number patches, features per patch]
-        x = self.mlp(x)               # [batch_size, number patches, features_per_patch]
-        
-        x = x.view(B, C, self.h, self.w)     # [batch size, features per patch, h, w]
-                                             # in each batch, now we have one image (h x w) for each feature calculated per patch
-        
-        x = F.interpolate(x, size=(self.output_size, self.output_size), mode="bilinear")     # increase each feature image from hxw to HxW
-        
-        x = normalize_to_range(x)
-        
-        # [batch size, features per patch, H, W]
-        x = self.conv_blocks(x)    #process all feature image, return just one mask
-        
-        
-        x = torch.cat((orig_x, x), dim=1)  # Concat along channels original images with their respective feature images
-        
-        x = self.unet(x)       # [B, 1 channel, H, W]
-        
-        return x  # Final shape [B, 1, H, W]   
+
+        features = self.backbone(x)  #[batch_size, num_patches, out_feature]
+        B, N, C = features.shape
+
+        #x = features.permute(0, 2, 1).contiguous()  # reshape to [batches, features, patches]
         
 
+        x = features.view(B, C, self.grid_size, self.grid_size)
+        #print(f"ViG: {x.shape=}")
+        
+
+        #Aplicar convoluciones
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        
+        # Capa final para generar la imagen de salida
+        x = self.conv_out(x)  # [B, 1, grid_size, grid_size]
+        #print(f"{x.shape=}")   
+        
+        #x = F.interpolate(x, size=(self.output_size, self.output_size), mode='bilinear', align_corners=False)
+        # [B, C, H, W]
     
+        # mean channels
+        #x = x.mean(dim=1, keepdim=True)  # [B, C, H, W] to [B, 1, H, W]
+        
+        
+        x = F.interpolate(x, size=(self.output_size, self.output_size), mode='bilinear', align_corners=False)    #[B, 1, H, W]
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        x.to(device)
+        
+        x = self.act(x)
+        #x = normalize_to_range(x)
+        
+        return x   #[B, 1, H, W]
+
+
+    # # DEFAULT
     # def forward(self, x):
-    #     features = self.backbone(x)  # [B, Number of patches, Features per patch (C)]
+  
+    #     features = self.backbone(x)  #[batch_size, num_patches, out_feature]
     #     B, N, C = features.shape
-    #     H, W = 512, 512
-    #     patch_size = H // int(N**0.5)  # 36, para 196 patches
-
-    #     # Reorganiza patches en la estructura original
-    #     # features = features.transpose(1, 2).contiguous().view(B, C, int(H/patch_size), int(W/patch_size))
-    #     # upsampled = F.interpolate(features, size=(H, W), mode='bilinear', align_corners=False)
-
-    #     # Aplica la cabeza convolucional para obtener un mapa de segmentación
-    #     pred = self.predictor(features)
-    #     return pred  # Salida de tamaño [B, 1, H, W]
-    
-    
+    #     x = self.predictor(features.view(B, -1))     # [B, N]
+        
+    #     # Reshape to spatial grid: [Batch, Grid_Height, Grid_Width]
+    #     x = x.view(B, self.grid_size, self.grid_size)  # [Batch, number of patches in x, number of patches in y]
+        
+    #     # Upsample to target resolution: [Batch, 1, 512, 512]
+    #     x = F.interpolate(x.unsqueeze(1), size=(self.output_size, self.output_size), mode='bilinear', align_corners=False)
+    #     return x
     
     
     
