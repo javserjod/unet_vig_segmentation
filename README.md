@@ -1,2 +1,2 @@
-# taarib_td
-Integration of Vision GNN, U-Net and PD
+# U-Net + Vision GNN
+Integration of U-Net and Vision GNN
