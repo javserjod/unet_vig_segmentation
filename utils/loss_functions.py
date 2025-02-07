@@ -71,12 +71,12 @@ class DiceBCELossWithTopology(nn.Module):
 
         # label cc (images already binary)
         pred_labels = label(pred)
-        #target_labels = label(target)
+        target_labels = label(target)
 
         # number of cc
         num_pred_components = len(set(pred_labels.flatten())) - 1  # exclude background
-        #num_target_components = len(set(target_labels.flatten())) - 1
-        num_target_components = 1
+        num_target_components = len(set(target_labels.flatten())) - 1
+        ############# num_target_components = 1
 
         # diference of cc
         return abs(num_pred_components - num_target_components)/self.image_pixels

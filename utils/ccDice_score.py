@@ -10,7 +10,7 @@ from scipy import ndimage as ndi
 
 
 #def ccDice(y_pred, y_true, alpha=0.5):
-def ccDice(y_pred_label, cc_pred, y_true_label, cc_true, alpha=0.5):    # modified (bug occured with default)
+def ccDice(y_pred_label, cc_pred, y_true_label, cc_true, alpha=0.5):    # modified (bug occurred with default)
     
     #y_pred_label, cc_pred = label(y_pred, return_num=True)
     #y_true_label, cc_true = label(y_true, return_num=True)
